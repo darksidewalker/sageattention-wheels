@@ -68,7 +68,7 @@ jobs:
       with:
         cuda: "${{ matrix.cuda }}.0"
         method: 'network'
-        sub-packages: '["cuda-compiler", "cuda-libraries", "cuda-libraries-dev"]'
+        sub-packages: '["compiler", "libraries", "libraries-dev"]'
         log-file-suffix: 'py${{ matrix.python }}-cu${{ matrix.cuda }}.txt'
 
     - name: Install Native Development Headers & Tools
