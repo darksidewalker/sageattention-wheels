@@ -67,8 +67,10 @@ jobs:
 
     - name: Install Native Development Headers
       run: |
+        # Force cache synchronization to prevent exit code 100
         sudo apt-get update
-        # Dynamically matches python3.12-dev or python3.13-dev based on the active matrix row
+        
+        # Now safely pull down headers matching the active matrix row
         sudo apt-get install -y build-essential git python${{ matrix.python }}-dev
 
     - name: Install Python Package Tools & Target PyTorch
