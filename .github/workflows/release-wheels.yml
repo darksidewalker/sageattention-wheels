@@ -79,11 +79,12 @@ jobs:
 
     - name: Install Native Development Headers & Tools
       run: |
+        # Force cache synchronization to keep repositories happy
         sudo apt-get update
         sudo apt-get install -y build-essential git
         
-        # Safely capture Python headers straight from the active setup-python installation
-        PYTHON_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())")
+        # FIXED: Using modern sysconfig instead of the deprecated/removed distutils
+        PYTHON_INCLUDE_DIR=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
         echo "C_INCLUDE_PATH=$PYTHON_INCLUDE_DIR" >> $GITHUB_ENV
         echo "CPLUS_INCLUDE_PATH=$PYTHON_INCLUDE_DIR" >> $GITHUB_ENV
         echo "Exposed Python Include Headers: $PYTHON_INCLUDE_DIR"
