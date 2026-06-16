@@ -1,4 +1,4 @@
-name: Release Prebuilt Wheels (Multi-Python)
+name: Release Prebuilt Wheels (Multi-Python & Multi-CUDA)
 
 on:
   workflow_dispatch:
@@ -9,15 +9,14 @@ on:
         default: 'v2.2.0-1'
 
 permissions:
-  contents: write
+  contents: write # Grants the workflow permission to create a Release and upload assets
 
 jobs:
   build-wheels:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false # Keep other builds running even if one matrix row encounters an issue
       matrix:
-        # Define explicit matrix rows for combinations of Python + Torch + CUDA
         include:
           # --- Python 3.12 (Modern Stack) ---
           - python: "3.12"
@@ -34,7 +33,6 @@ jobs:
             arch: "8.0;8.9;9.0;12.0"
           
           # --- Python 3.13 (Next-Gen Stack) ---
-          # SageAttention compilation targeting Python 3.13 environments
           - python: "3.13"
             cuda: "12.6"
             torch: "2.13.0"
@@ -44,11 +42,11 @@ jobs:
             torch: "2.13.0"
             arch: "8.0;8.9;9.0;12.0"
 
-          # --- Python 3.12 (Legacy Pascal Match) ---
+          # --- Python 3.12 (Legacy Pascal Target) ---
           - python: "3.12"
             cuda: "12.1"
             torch: "2.4.1"
-            arch: "6.1"
+            arch: "6.1" # For GTX 10xx series (1080, 1080Ti, etc.)
 
     steps:
     - name: Checkout Code
@@ -59,19 +57,28 @@ jobs:
       with:
         python-version: ${{ matrix.python }}
 
+    - name: Register NVIDIA Package Repositories
+      run: |
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+        sudo dpkg -i cuda-keyring_1.1-1_all.deb
+        sudo apt-get update
+
     - name: Install CUDA Toolkit ${{ matrix.cuda }}
       uses: Jimver/cuda-toolkit@v0.2.35
       with:
         cuda: "${{ matrix.cuda }}.0"
         method: 'network'
 
-    - name: Install Native Development Headers
+    - name: Install Native Development Headers & Tools
       run: |
-        # Force cache synchronization to prevent exit code 100
         sudo apt-get update
+        sudo apt-get install -y build-essential git
         
-        # Now safely pull down headers matching the active matrix row
-        sudo apt-get install -y build-essential git python${{ matrix.python }}-dev
+        # Safely capture Python headers straight from the active setup-python installation
+        PYTHON_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())")
+        echo "C_INCLUDE_PATH=$PYTHON_INCLUDE_DIR" >> $GITHUB_ENV
+        echo "CPLUS_INCLUDE_PATH=$PYTHON_INCLUDE_DIR" >> $GITHUB_ENV
+        echo "Exposed Python Include Headers: $PYTHON_INCLUDE_DIR"
 
     - name: Install Python Package Tools & Target PyTorch
       run: |
@@ -84,8 +91,9 @@ jobs:
         git clone https://github.com/thu-ml/SageAttention.git
         cd SageAttention
         
+        # Force single-threaded compilation to stay safely under the 7GB runner RAM ceiling
         export FORCE_CUDA="1" 
-        export MAX_JOBS="2" 
+        export MAX_JOBS="1" 
         export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
         
         python setup.py bdist_wheel
@@ -100,7 +108,7 @@ jobs:
             if [[ "$old_name" == *"+${CUDA_INDEX_TAG}"* ]]; then
                 new_name="${old_name//+${CUDA_INDEX_TAG}/+pt${TORCH_SHORT}${CUDA_INDEX_TAG}}"
                 mv "$old_name" "$new_name"
-                echo "Canonicalized wheel to: $new_name"
+                echo "Canonicalized wheel file layout: $new_name"
             else
                 new_name="$old_name"
             fi
@@ -111,7 +119,7 @@ jobs:
     - name: Temporarily Store Wheel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: wheels-py${{ matrix.python }}-cuda-${{ matrix.cuda }}
+        name: wheels-py${{ matrix.python }}-cuda-${{ matrix.cuda }}-torch-${{ matrix.torch }}
         path: wheelhouse/*.whl
 
   publish-release:
@@ -136,9 +144,14 @@ jobs:
         body: |
           Automated multi-environment precompiled wheels for SageAttention.
           
-          Supported runtimes include:
-          - **Python 3.12** targets with PyTorch 2.12.0 & 2.4.1
-          - **Python 3.13** targets with PyTorch 2.13.0
+          ### Modern Stacks
+          - **Python 3.12**: CUDA 12.6, 13.0, 13.2 | PyTorch 2.12.0
+          - **Python 3.13**: CUDA 12.6, 13.2 | PyTorch 2.13.0
+          - *Target GPU Architectures:* Ampere, Ada Lovelace, Hopper, Blackwell (`sm_80`, `sm_89`, `sm_90`, `sm_120`)
+          
+          ### Legacy Stack
+          - **Python 3.12**: CUDA 12.1 | PyTorch 2.4.1
+          - *Target GPU Architecture:* Pascal (`sm_61`) for NVIDIA GTX 10xx series
         files: final_wheels/*.whl
         draft: false
         prerelease: false
