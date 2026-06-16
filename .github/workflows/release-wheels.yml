@@ -83,7 +83,7 @@ jobs:
         cd SageAttention
         
         export FORCE_CUDA="1" 
-        export MAX_JOBS="4" 
+        export MAX_JOBS="2" 
         export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
         
         python setup.py bdist_wheel
