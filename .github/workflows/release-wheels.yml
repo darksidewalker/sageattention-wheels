@@ -57,8 +57,16 @@ jobs:
       with:
         python-version: ${{ matrix.python }}
 
-    - name: Register NVIDIA Package Repositories
+    - name: Register NVIDIA Package Repositories & Fix Dependencies
       run: |
+        # Ensure the Ubuntu universe repository is active (holds legacy libtinfo5)
+        sudo add-apt-repository universe -y
+        sudo apt-get update
+        
+        # Install libtinfo5 explicitly first so CUDA 12.1 doesn't panic
+        sudo apt-get install -y libtinfo5 || true
+        
+        # Configure the universal CUDA keyring package
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
         sudo dpkg -i cuda-keyring_1.1-1_all.deb
         sudo apt-get update
