@@ -49,8 +49,9 @@ jobs:
       with:
         python-version: '3.12'
 
+    # Fixed: Switched to the verified Jimver action
     - name: Install CUDA Toolkit ${{ matrix.cuda }}
-      uses: jimmy-xu/install-cuda@v2.3.0
+      uses: Jimver/cuda-toolkit@v0.2.35
       with:
         cuda: "${{ matrix.cuda }}.0"
         method: 'network'
