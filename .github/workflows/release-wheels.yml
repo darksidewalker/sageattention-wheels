@@ -22,11 +22,11 @@ jobs:
           - python: "3.12"
             cuda: "12.6"
             torch: "2.12.0"
-            arch: "8.0;8.9;9.0;12.0"
+            arch: "8.0;8.9;9.0" # Cleaned: Removed 12.0 because CUDA 12.6 can't compile Blackwell
           - python: "3.12"
             cuda: "13.0"
             torch: "2.12.0"
-            arch: "8.0;8.9;9.0;12.0"
+            arch: "8.0;8.9;9.0;12.0" # Safe: CUDA 13 natively compiles Blackwell (12.0)
           - python: "3.12"
             cuda: "13.2"
             torch: "2.12.0"
@@ -35,18 +35,14 @@ jobs:
           # --- Python 3.13 (Next-Gen Stack) ---
           - python: "3.13"
             cuda: "12.6"
-            torch: "2.13.0"
-            arch: "8.0;8.9;9.0;12.0"
+            torch: "2.12.0" # Fixed: Swapped 2.13.0 to 2.12.0 to match available PyTorch wheels
+            arch: "8.0;8.9;9.0"
           - python: "3.13"
             cuda: "13.2"
-            torch: "2.13.0"
+            torch: "2.12.0" # Fixed: Swapped 2.13.0 to 2.12.0 to match available PyTorch wheels
             arch: "8.0;8.9;9.0;12.0"
 
-          # --- Python 3.12 (Legacy Pascal Target) ---
-          - python: "3.12"
-            cuda: "12.1"
-            torch: "2.4.1"
-            arch: "6.1" # For GTX 10xx series (1080, 1080Ti, etc.)
+          # Note: Legacy Pascal row removed because SageAttention requires hardware sync primitives (sm_70+)
 
     steps:
     - name: Checkout Code
@@ -97,6 +93,9 @@ jobs:
         export FORCE_CUDA="1" 
         export MAX_JOBS="1" 
         export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
+        
+        # NEW: Force the linker to conserve RAM to prevent exit status 255
+        export LDFLAGS="-Wl,--no-keep-memory -Wl,--reduce-memory-overheads"
         
         python setup.py bdist_wheel
 
