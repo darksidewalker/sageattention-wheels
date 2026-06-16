@@ -1,81 +1,104 @@
-name: Release Prebuilt Wheels
+name: Release Prebuilt Wheels (Multi-Python)
 
 on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag Name (e.g., v2.1.2-1)'
+        description: 'Release Tag Name (e.g., v2.2.0-1)'
         required: true
-        default: 'v2.1.2-1'
-      extra_cuda_version:
-        description: 'Add an extra CUDA version to compile (e.g., 13.4)'
-        required: false
-        default: ''
+        default: 'v2.2.0-1'
 
 permissions:
-  contents: write # Crucial permission allowing the runner to create a Release
+  contents: write
 
 jobs:
-  setup-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      cuda_matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          base_matrix='["12.8", "13.0", "13.2"]'
-          extra="${{ github.event.inputs.extra_cuda_version }}"
-          if [ -n "$extra" ]; then
-            final_matrix=$(echo "$base_matrix" | jq ". + [\"$extra\"]" -c)
-          else
-            final_matrix=$base_matrix
-          fi
-          echo "matrix=${final_matrix}" >> $GITHUB_OUTPUT
-
   build-wheels:
-    needs: setup-matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        cuda: ${{ fromJson(needs.setup-matrix.outputs.cuda_matrix) }}
+        # Define explicit matrix rows for combinations of Python + Torch + CUDA
+        include:
+          # --- Python 3.12 (Modern Stack) ---
+          - python: "3.12"
+            cuda: "12.6"
+            torch: "2.12.0"
+            arch: "8.0;8.9;9.0;12.0"
+          - python: "3.12"
+            cuda: "13.0"
+            torch: "2.12.0"
+            arch: "8.0;8.9;9.0;12.0"
+          - python: "3.12"
+            cuda: "13.2"
+            torch: "2.12.0"
+            arch: "8.0;8.9;9.0;12.0"
+          
+          # --- Python 3.13 (Next-Gen Stack) ---
+          # SageAttention compilation targeting Python 3.13 environments
+          - python: "3.13"
+            cuda: "12.6"
+            torch: "2.13.0"
+            arch: "8.0;8.9;9.0;12.0"
+          - python: "3.13"
+            cuda: "13.2"
+            torch: "2.13.0"
+            arch: "8.0;8.9;9.0;12.0"
+
+          # --- Python 3.12 (Legacy Pascal Match) ---
+          - python: "3.12"
+            cuda: "12.1"
+            torch: "2.4.1"
+            arch: "6.1"
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Set up Python 3.12
+    - name: Set up Python ${{ matrix.python }}
       uses: actions/setup-python@v5
       with:
-        python-version: '3.12'
+        python-version: ${{ matrix.python }}
 
-    # Fixed: Switched to the verified Jimver action
     - name: Install CUDA Toolkit ${{ matrix.cuda }}
       uses: Jimver/cuda-toolkit@v0.2.35
       with:
         cuda: "${{ matrix.cuda }}.0"
         method: 'network'
 
-    - name: Install Tools & PyTorch
+    - name: Install Native Development Headers
+      run: |
+        sudo apt-get update
+        # Dynamically matches python3.12-dev or python3.13-dev based on the active matrix row
+        sudo apt-get install -y build-essential git python${{ matrix.python }}-dev
+
+    - name: Install Python Package Tools & Target PyTorch
       run: |
         python -m pip install --upgrade pip setuptools wheel ninja
         CUDA_INDEX_TAG="cu$(echo '${{ matrix.cuda }}' | tr -d '.')"
-        python -m pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/${CUDA_INDEX_TAG}
+        python -m pip install torch==${{ matrix.torch }} --index-url https://download.pytorch.org/whl/${CUDA_INDEX_TAG}
 
     - name: Clone & Compile SageAttention
       run: |
         git clone https://github.com/thu-ml/SageAttention.git
         cd SageAttention
-        FORCE_CUDA="1" MAX_JOBS="4" TORCH_CUDA_ARCH_LIST="8.0;8.9;9.0;12.0" python setup.py bdist_wheel
+        
+        export FORCE_CUDA="1" 
+        export MAX_JOBS="4" 
+        export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
+        
+        python setup.py bdist_wheel
 
     - name: Canonicalize Wheel Name
       run: |
         cd SageAttention/dist
         CUDA_INDEX_TAG="cu$(echo '${{ matrix.cuda }}' | tr -d '.')"
+        TORCH_SHORT=$(echo "${{ matrix.torch }}" | cut -d. -f1,2)
+        
         for old_name in *.whl; do
             if [[ "$old_name" == *"+${CUDA_INDEX_TAG}"* ]]; then
-                new_name="${old_name//+${CUDA_INDEX_TAG}/+pt2.12${CUDA_INDEX_TAG}}"
+                new_name="${old_name//+${CUDA_INDEX_TAG}/+pt${TORCH_SHORT}${CUDA_INDEX_TAG}}"
                 mv "$old_name" "$new_name"
+                echo "Canonicalized wheel to: $new_name"
             else
                 new_name="$old_name"
             fi
@@ -86,7 +109,7 @@ jobs:
     - name: Temporarily Store Wheel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: wheels-cuda-${{ matrix.cuda }}
+        name: wheels-py${{ matrix.python }}-cuda-${{ matrix.cuda }}
         path: wheelhouse/*.whl
 
   publish-release:
@@ -99,7 +122,7 @@ jobs:
     - name: Download All Artifacts from Workers
       uses: actions/download-artifact@v4
       with:
-        pattern: wheels-cuda-*
+        pattern: wheels-*
         path: final_wheels
         merge-multiple: true
 
@@ -109,10 +132,11 @@ jobs:
         tag_name: ${{ github.event.inputs.tag_name }}
         name: SageAttention Prebuilts (${{ github.event.inputs.tag_name }})
         body: |
-          Automated precompiled wheels for SageAttention.
-          - Python: 3.12
-          - PyTorch: 2.12.0
-          - Target Architectures: Ampere, Ada, Hopper, Blackwell (sm_80, sm_89, sm_90, sm_120)
+          Automated multi-environment precompiled wheels for SageAttention.
+          
+          Supported runtimes include:
+          - **Python 3.12** targets with PyTorch 2.12.0 & 2.4.1
+          - **Python 3.13** targets with PyTorch 2.13.0
         files: final_wheels/*.whl
         draft: false
         prerelease: false
