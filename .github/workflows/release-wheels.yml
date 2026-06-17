@@ -70,7 +70,8 @@ jobs:
     - name: Install Native Development Headers & Tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git
+        # ADDED: lld (LLVM Linker) to prevent memory crashes during compilation linking
+        sudo apt-get install -y build-essential git lld
         
         # Modern sysconfig lookups mapping both 3.12 and 3.13 without distutils requirements
         PYTHON_INCLUDE_DIR=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
@@ -94,8 +95,8 @@ jobs:
         export MAX_JOBS="1" 
         export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
         
-        # NEW: Force the linker to conserve RAM to prevent exit status 255
-        export LDFLAGS="-Wl,--no-keep-memory -Wl,--reduce-memory-overheads"
+        # FIXED: Swap the linker backend to LLD and strip symbols to drop memory usage below 7GB
+        export LDFLAGS="-fuse-ld=lld -Wl,--no-keep-memory -Wl,--reduce-memory-overheads -Wl,-s"
         
         python setup.py bdist_wheel
 
@@ -147,12 +148,8 @@ jobs:
           
           ### Modern Stacks
           - **Python 3.12**: CUDA 12.6, 13.0, 13.2 | PyTorch 2.12.0
-          - **Python 3.13**: CUDA 12.6, 13.2 | PyTorch 2.13.0
+          - **Python 3.13**: CUDA 12.6, 13.2 | PyTorch 2.12.0
           - *Target GPU Architectures:* Ampere, Ada Lovelace, Hopper, Blackwell (`sm_80`, `sm_89`, `sm_90`, `sm_120`)
-          
-          ### Legacy Stack
-          - **Python 3.12**: CUDA 12.1 | PyTorch 2.4.1
-          - *Target GPU Architecture:* Pascal (`sm_61`) for NVIDIA GTX 10xx series
         files: final_wheels/*.whl
         draft: false
         prerelease: false
