@@ -95,8 +95,9 @@ jobs:
         export MAX_JOBS="1" 
         export TORCH_CUDA_ARCH_LIST="${{ matrix.arch }}"
         
-        # FIXED: Swap the linker backend to LLD and strip symbols to drop memory usage below 7GB
-        export LDFLAGS="-fuse-ld=lld -Wl,--no-keep-memory -Wl,--reduce-memory-overheads -Wl,-s"
+        # FIXED: Removed the invalid GNU-specific flag. 
+        # Using lld with symbol stripping (-s) to maximize RAM efficiency.
+        export LDFLAGS="-fuse-ld=lld -Wl,-s"
         
         python setup.py bdist_wheel
 
